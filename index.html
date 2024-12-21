@@ -239,13 +239,6 @@
             /* Center the text inside the button */
         }
 
-        .restart-container {
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            margin-top: 1.5rem;
-        }
-
         .progress-container {
             display: flex;
             justify-content: center;
@@ -429,6 +422,15 @@
             height: 100%;
             border: none;
         }
+
+        .restart-button {
+            min-width: 200px;
+            margin: 0 0.5rem;
+        }
+
+        .restart-button:last-child {
+            margin-right: 0;
+        }
     </style>
 </head>
 
@@ -447,9 +449,6 @@
     <h2 class="score">Score: <span id="score">0</span></h2>
 
     <div id="summary" class="summary-container"></div>
-    <div class="restart-container">
-        <button class="restart-button" onclick="restart()">Restart</button>
-    </div>
 
     <script>
         const countryCodes = [
@@ -476,6 +475,7 @@
         let currentCountryName = '';
         let questions = [];
         let totalQuestions = 20;
+        let wrongAnswersQueue = [];
 
         function showQuestionModal() {
             document.getElementById('questionModal').style.display = 'flex';
@@ -500,16 +500,16 @@
         }
 
         async function loadFlag() {
-            // Change the condition to >= totalQuestions instead of >
-            if (questions.length >= totalQuestions) {
-                displaySummary();
-                return;
-            }
-
             // Update progress bar and text
             const progressFill = document.getElementById('progressFill');
             const progressText = document.getElementById('progressText');
-            const progressPercentage = ((questions.length + 1) / totalQuestions) * 100;
+            const progressPercentage = (questions.length / totalQuestions) * 100;
+
+            // Show summary only after all questions are answered
+            if (questions.length === totalQuestions) {
+                displaySummary();
+                return;
+            }
 
             progressFill.style.width = `${progressPercentage}%`;
             progressText.textContent = `${questions.length + 1}/${totalQuestions}`;
@@ -553,17 +553,15 @@
             const buttons = optionsContainer.querySelectorAll('.option-button');
             const isCorrect = selectedCountry === currentCountryName;
 
-            // Disable buttons to prevent multiple clicks
             buttons.forEach(button => {
                 button.disabled = true;
 
-                // Color the buttons based on correctness
                 if (button.textContent === currentCountryName) {
-                    button.style.backgroundColor = '#2ecc71'; // Green for correct answer
+                    button.style.backgroundColor = '#2ecc71';
                 }
 
                 if (button.textContent === selectedCountry && !isCorrect) {
-                    button.style.backgroundColor = '#e74c3c'; // Red for incorrect answer
+                    button.style.backgroundColor = '#e74c3c';
                 }
             });
 
@@ -572,27 +570,45 @@
                 questions.push({ flag: document.getElementById('flag').src, country: currentCountryName, isCorrect });
                 document.getElementById('score').textContent = score;
 
-                // No delay for correct answer
-                // Reset button styles
                 buttons.forEach(button => {
                     button.disabled = false;
                     button.style.backgroundColor = 'var(--primary-color)';
                 });
-                loadFlag();
-                createConfetti();
+
+                // Only show summary if we've reached total questions
+                if (questions.length === totalQuestions) {
+                    displaySummary();
+                } else {
+                    if (typeof wrongAnswersQueue !== 'undefined' && wrongAnswersQueue.length > 0) {
+                        wrongAnswersQueue.shift();
+                        loadWrongFlag();
+                    } else {
+                        loadFlag();
+                    }
+                    createConfetti();
+                }
             } else {
-                // Delay for incorrect answer
                 setTimeout(() => {
                     questions.push({ flag: document.getElementById('flag').src, country: currentCountryName, isCorrect });
 
-                    // Reset button styles
                     buttons.forEach(button => {
                         button.disabled = false;
                         button.style.backgroundColor = 'var(--primary-color)';
                     });
 
-                    loadFlag();
-                }, 1000); // 1 second delay
+                    // Only show summary if we've reached total questions
+                    if (questions.length === totalQuestions) {
+                        displaySummary();
+                    } else {
+                        if (typeof wrongAnswersQueue !== 'undefined' && wrongAnswersQueue.length > 0) {
+                            const currentQuestion = wrongAnswersQueue.shift();
+                            wrongAnswersQueue.push(currentQuestion);
+                            loadWrongFlag();
+                        } else {
+                            loadFlag();
+                        }
+                    }
+                }, 1000);
             }
         }
 
@@ -625,17 +641,89 @@
                 const answerItem = document.createElement('div');
                 answerItem.className = `answer-item ${isCorrect ? 'correct' : 'incorrect'}`;
                 answerItem.innerHTML = `<img src="${flag}" alt="Flag"><p>${country}</p>`;
-
-                // Add click event to open Wikipedia modal
                 answerItem.addEventListener('click', () => openWikipediaModal(country));
-
                 answerList.appendChild(answerItem);
             });
 
             summaryContainer.appendChild(answerList);
 
-            // Ensure restart button is visible
-            document.querySelector('.restart-button').style.display = 'block';
+            // Remove the restart-container div since we'll handle the button in the summary
+            const restartButton = document.createElement('button');
+            restartButton.className = 'restart-button';
+            restartButton.textContent = 'Restart';
+            restartButton.onclick = restart;
+            
+            // Create container for buttons
+            const buttonContainer = document.createElement('div');
+            buttonContainer.style.display = 'flex';
+            buttonContainer.style.justifyContent = 'center';
+            buttonContainer.style.gap = '1rem';
+            buttonContainer.style.marginTop = '2rem';
+
+            // Only show the wrong answers button if there were any wrong answers
+            const hasWrongAnswers = questions.some(q => !q.isCorrect);
+            if (hasWrongAnswers) {
+                const restartWrongButton = document.createElement('button');
+                restartWrongButton.className = 'restart-button';
+                restartWrongButton.textContent = 'Practice Wrong Answers';
+                restartWrongButton.onclick = restartWrongAnswers;
+                buttonContainer.appendChild(restartWrongButton);
+            }
+            buttonContainer.appendChild(restartButton);
+
+            summaryContainer.appendChild(buttonContainer);
+        }
+
+        function restartWrongAnswers() {
+            // Filter wrong answers
+            const wrongAnswers = questions.filter(q => !q.isCorrect);
+            
+            // Reset game state
+            document.querySelector('.flag-container').style.display = 'flex';
+            document.getElementById('options').style.display = 'flex';
+            document.querySelector('.score').style.display = 'block';
+            document.getElementById('summary').innerHTML = '';
+
+            // Set up new game with wrong answers
+            score = 0;
+            questions = [];
+            totalQuestions = wrongAnswers.length;
+            wrongAnswersQueue = [...wrongAnswers]; // Create a queue of wrong answers
+            
+            // Reset progress bar
+            const progressFill = document.getElementById('progressFill');
+            const progressText = document.getElementById('progressText');
+            progressFill.style.width = '0%';
+            progressText.textContent = `0/${totalQuestions}`;
+            
+            document.getElementById('score').textContent = score;
+            
+            // Start new game with wrong answers
+            loadWrongFlag();
+        }
+
+        async function loadWrongFlag() {
+            // Show summary only when all wrong answers are completed
+            if (wrongAnswersQueue.length === 0) {
+                displaySummary();
+                return;
+            }
+
+            // Update progress bar and text
+            const progressFill = document.getElementById('progressFill');
+            const progressText = document.getElementById('progressText');
+            const progressPercentage = ((totalQuestions - wrongAnswersQueue.length) / totalQuestions) * 100;
+
+            progressFill.style.width = `${progressPercentage}%`;
+            progressText.textContent = `${totalQuestions - wrongAnswersQueue.length + 1}/${totalQuestions}`;
+
+            // Get the next wrong answer from the queue
+            const wrongAnswer = wrongAnswersQueue[0];
+            currentCountryName = wrongAnswer.country;
+            document.getElementById('flag').src = wrongAnswer.flag;
+            
+            // Load options including the correct answer
+            loadOptions(currentCountryName);
         }
 
         function openWikipediaModal(country) {
@@ -710,19 +798,8 @@
 
 
         function restart() {
-            // Reset visibility of game elements
-            document.querySelector('.flag-container').style.display = 'flex';
-            document.getElementById('options').style.display = 'flex';
-            document.querySelector('.score').style.display = 'block';
-            document.getElementById('summary').innerHTML = ''; // Clear previous summary
-
-            showQuestionModal();
-
-            // Reset progress bar
-            const progressFill = document.getElementById('progressFill');
-            const progressText = document.getElementById('progressText');
-            progressFill.style.width = '0%';
-            progressText.textContent = '0/20';
+            // Simply reload the page
+            window.location.reload();
         }
 
         function createConfetti() {
